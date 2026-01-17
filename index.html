@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>防災訓練 点呼ボード</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+    .modal-animate { animation: fadeIn 0.2s ease-out forwards; }
+    .animate-pulse-custom { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+  </style>
+</head>
+
+<body class="bg-slate-50 text-slate-900 pb-20 font-sans">
+
+  <!-- ヘッダー -->
+  <header class="bg-blue-600 text-white p-4 shadow-md sticky top-0 z-10">
+    <div class="max-w-4xl mx-auto">
+      <div class="flex justify-between items-center mb-4">
+        <h1 class="text-xl font-bold flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          防災訓練 点呼ボード
+        </h1>
+        <div class="text-xs bg-blue-700 px-2 py-1 rounded">GitHub Pages</div>
+      </div>
+
+      <div class="grid grid-cols-3 gap-2 text-center">
+        <div class="bg-blue-500/50 p-2 rounded-lg">
+          <div class="text-xs opacity-80">報告済み</div>
+          <div class="text-2xl font-bold">
+            <span id="stat-reported">0</span> <span class="text-sm font-normal">/ 12</span>
+          </div>
+        </div>
+        <div class="bg-blue-500/50 p-2 rounded-lg">
+          <div class="text-xs opacity-80">確認人数</div>
+          <div class="text-2xl font-bold">
+            <span id="stat-students">0</span> <span class="text-sm font-normal">名</span>
+          </div>
+        </div>
+        <div id="stat-issue-box" class="bg-blue-500/50 p-2 rounded-lg transition-colors">
+          <div class="text-xs opacity-80">要対応</div>
+          <div class="text-2xl font-bold">
+            <span id="stat-issues">0</span> <span class="text-sm font-normal">クラス</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- メイン -->
+  <main class="max-w-4xl mx-auto p-4">
+    <div id="loading" class="text-center py-10 text-gray-500">データを読み込んでいます...</div>
+
+    <div id="errorBox" class="hidden bg-red-50 border border-red-200 text-red-800 rounded-xl p-4 mb-4">
+      <div class="font-bold mb-1">接続エラー</div>
+      <div id="errorText" class="text-sm whitespace-pre-wrap"></div>
+      <div class="text-xs mt-2 opacity-70">
+        対処：Firebase設定がダミー / 匿名ログイン未許可 / Firestoreルール不許可 のいずれかです。
+      </div>
+    </div>
+
+    <div id="class-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 hidden"></div>
+
+    <div class="mt-12 text-center">
+      <button id="reset-btn"
+              class="text-gray-400 text-sm hover:text-red-500 flex items-center justify-center gap-1 mx-auto border border-gray-200 px-4 py-2 rounded-full bg-white hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+          <path d="M21 3v5h-5"/>
+          <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+          <path d="M3 21v-5h5"/>
+        </svg>
+        全データをリセット（訓練開始前）
+      </button>
+    </div>
+  </main>
+
+  <!-- 入力モーダル -->
+  <div id="modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm hidden">
+    <div class="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden modal-animate" id="modal-content">
+      <div class="bg-slate-100 p-4 border-b flex justify-between items-center">
+        <h2 id="modal-title" class="text-xl font-bold text-slate-800">--年--組 報告</h2>
+        <button id="modal-close" class="text-slate-500 hover:text-slate-800 text-2xl font-light">×</button>
+      </div>
+
+      <div class="p-6 space-y-6">
+        <!-- ステータス -->
+        <div class="flex rounded-lg bg-gray-100 p-1">
+          <button id="btn-status-safe"
+                  class="flex-1 py-2 rounded-md text-sm font-bold transition-all flex items-center justify-center gap-2 bg-green-500 text-white shadow">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+              <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+            全員安全
+          </button>
+          <button id="btn-status-issue"
+                  class="flex-1 py-2 rounded-md text-sm font-bold transition-all flex items-center justify-center gap-2 text-gray-500 hover:bg-gray-200">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            問題あり
+          </button>
+        </div>
+
+        <!-- 人数 -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">確認人数</label>
+          <div class="flex gap-2">
+            <input type="number" id="input-count" placeholder="0"
+                   class="flex-1 text-center text-3xl font-bold p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+            <div class="flex flex-col gap-1">
+              <button id="btn-count-plus" class="bg-gray-200 px-3 rounded-t hover:bg-gray-300 font-bold text-lg leading-none pt-1">+</button>
+              <button id="btn-count-minus" class="bg-gray-200 px-3 rounded-b hover:bg-gray-300 font-bold text-lg leading-none pb-1">-</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 備考 -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">備考 (任意)</label>
+          <input type="text" id="input-note" placeholder="欠席1名、保健室待機など"
+                 class="w-full p-3 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+        </div>
+
+        <button id="btn-save"
+                class="w-full py-4 rounded-xl text-lg font-bold text-white shadow-lg bg-blue-600 hover:bg-blue-700 transition-transform active:scale-95">
+          報告を送信
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, doc, setDoc, onSnapshot, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // ====== ここだけ本物に置き換える ======
+    const YOUR_FIREBASE_CONFIG = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT_ID.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+    // =====================================
+
+    const app = initializeApp(YOUR_FIREBASE_CONFIG);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // 12クラス
+    const ALL_CLASSES = [];
+    [1,2,3,4,5,6].forEach(g => ['A','B'].forEach(c => ALL_CLASSES.push({ id: `${g}-${c}`, label: `${g}年${c}組` })));
+
+    // state
+    let currentUser = null;
+    let drillData = {};
+    let selectedClassId = null;
+    let currentStatusType = 'safe';
+
+    // dom
+    const gridEl = document.getElementById('class-grid');
+    const loadingEl = document.getElementById('loading');
+    const resetBtn = document.getElementById('reset-btn');
+    const statReported = document.getElementById('stat-reported');
+    const statStudents = document.getElementById('stat-students');
+    const statIssues = document.getElementById('stat-issues');
+    const statIssueBox = document.getElementById('stat-issue-box');
+
+    const modalEl = document.getElementById('modal');
+    const modalTitle = document.getElementById('modal-title');
+    const inputCount = document.getElementById('input-count');
+    const inputNote = document.getElementById('input-note');
+    const btnStatusSafe = document.getElementById('btn-status-safe');
+    const btnStatusIssue = document.getElementById('btn-status-issue');
+    const btnSave = document.getElementById('btn-save');
+
+    const errorBox = document.getElementById('errorBox');
+    const errorText = document.getElementById('errorText');
+
+    function showError(e) {
+      console.error(e);
+      errorText.textContent = (e && e.message) ? e.message : String(e);
+      errorBox.classList.remove('hidden');
+      loadingEl.classList.add('hidden');
+    }
+
+    function getStatusColor(data) {
+      if (!data || !data.reported) return 'bg-gray-100 border-gray-300 text-gray-500 hover:bg-gray-200';
+      if (data.status === 'issue') return 'bg-red-100 border-red-500 text-red-700 animate-pulse-custom';
+      return 'bg-green-100 border-green-500 text-green-700';
+    }
+
+    function getStatusIcon(data) {
+      const warning = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-red-600"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+      const check = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-600"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
+      const waiting = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-30"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`;
+      if (!data || !data.reported) return waiting;
+      if (data.status === 'issue') return warning;
+      return check;
+    }
+
+    function renderGrid() {
+      gridEl.innerHTML = '';
+
+      let reportedCount = 0;
+      let totalStudents = 0;
+      let issueCount = 0;
+
+      ALL_CLASSES.forEach(cls => {
+        const data = drillData[cls.id];
+        const isReported = data && data.reported;
+
+        if (isReported) {
+          reportedCount++;
+          totalStudents += (data.count || 0);
+          if (data.status === 'issue') issueCount++;
+        }
+
+        const btn = document.createElement('button');
+        btn.className = `relative p-4 rounded-xl border-2 shadow-sm flex flex-col items-center justify-center h-32 transition-all active:scale-95 w-full ${getStatusColor(data)}`;
+        btn.onclick = () => openModal(cls);
+
+        const iconDiv = document.createElement('div');
+        iconDiv.className = "absolute top-2 right-2";
+        iconDiv.innerHTML = getStatusIcon(data);
+        btn.appendChild(iconDiv);
+
+        const titleDiv = document.createElement('div');
+        titleDiv.className = "text-2xl font-bold mb-1";
+        titleDiv.innerText = cls.label;
+        btn.appendChild(titleDiv);
+
+        const detailDiv = document.createElement('div');
+        detailDiv.className = "text-sm font-medium";
+        if (isReported) {
+          const statusText = data.status === 'issue' ? '要対応' : '安全';
+          detailDiv.innerHTML = `${data.count}名 <span class="text-xs opacity-75">(${statusText})</span>`;
+        } else {
+          detailDiv.innerHTML = '<span class="opacity-50">未報告</span>';
+        }
+        btn.appendChild(detailDiv);
+
+        if (isReported && data.note) {
+          const noteDiv = document.createElement('div');
+          noteDiv.className = "mt-1 text-xs truncate max-w-full px-2 bg-white/30 rounded w-11/12";
+          noteDiv.innerText = data.note;
+          btn.appendChild(noteDiv);
+        }
+
+        gridEl.appendChild(btn);
+      });
+
+      statReported.innerText = reportedCount;
+      statStudents.innerText = totalStudents;
+      statIssues.innerText = issueCount;
+
+      if (issueCount > 0) {
+        statIssueBox.className = "bg-red-500 p-2 rounded-lg transition-colors text-white";
+      } else {
+        statIssueBox.className = "bg-blue-500/50 p-2 rounded-lg transition-colors";
+      }
+    }
+
+    // modal
+    function openModal(cls) {
+      selectedClassId = cls.id;
+      const data = drillData[cls.id] || {};
+      modalTitle.innerText = `${cls.label} 報告`;
+      inputCount.value = data.count !== undefined ? data.count : '';
+      inputNote.value = data.note || '';
+      setStatus(data.status === 'issue' ? 'issue' : 'safe');
+      modalEl.classList.remove('hidden');
+    }
+
+    function closeModal() {
+      modalEl.classList.add('hidden');
+      selectedClassId = null;
+    }
+
+    function setStatus(type) {
+      currentStatusType = type;
+      if (type === 'safe') {
+        btnStatusSafe.className = "flex-1 py-2 rounded-md text-sm font-bold transition-all flex items-center justify-center gap-2 bg-green-500 text-white shadow";
+        btnStatusIssue.className = "flex-1 py-2 rounded-md text-sm font-bold transition-all flex items-center justify-center gap-2 text-gray-500 hover:bg-gray-200";
+        btnSave.className = "w-full py-4 rounded-xl text-lg font-bold text-white shadow-lg bg-blue-600 hover:bg-blue-700 transition-transform active:scale-95";
+      } else {
+        btnStatusSafe.className = "flex-1 py-2 rounded-md text-sm font-bold transition-all flex items-center justify-center gap-2 text-gray-500 hover:bg-gray-200";
+        btnStatusIssue.className = "flex-1 py-2 rounded-md text-sm font-bold transition-all flex items-center justify-center gap-2 bg-red-500 text-white shadow";
+        btnSave.className = "w-full py-4 rounded-xl text-lg font-bold text-white shadow-lg bg-red-600 hover:bg-red-700 transition-transform active:scale-95";
+      }
+    }
+
+    document.getElementById('modal-close').onclick = closeModal;
+    btnStatusSafe.onclick = () => setStatus('safe');
+    btnStatusIssue.onclick = () => setStatus('issue');
+
+    document.getElementById('btn-count-plus').onclick = () => {
+      const val = parseInt(inputCount.value) || 0;
+      inputCount.value = val + 1;
+    };
+    document.getElementById('btn-count-minus').onclick = () => {
+      const val = parseInt(inputCount.value) || 0;
+      inputCount.value = Math.max(0, val - 1);
+    };
+
+    // 保存
+    btnSave.onclick = async () => {
+      if (!selectedClassId || !currentUser) return;
+
+      const classLabel = ALL_CLASSES.find(c => c.id === selectedClassId)?.label;
+
+      try {
+        await setDoc(doc(db, 'drill_status', selectedClassId), {
+          id: selectedClassId,
+          label: classLabel,
+          count: parseInt(inputCount.value) || 0,
+          note: inputNote.value,
+          status: currentStatusType, // 'safe' or 'issue'
+          reported: true,
+          updatedAt: serverTimestamp(),
+          updatedBy: currentUser.uid
+        }, { merge: true });
+
+        closeModal();
+      } catch (e) {
+        showError(e);
+        alert('保存できませんでした');
+      }
+    };
+
+    // リセット
+    resetBtn.onclick = async () => {
+      if (!confirm('本当にリセットしますか？')) return;
+      try {
+        const batch = writeBatch(db);
+        ALL_CLASSES.forEach(c => {
+          batch.set(doc(db, 'drill_status', c.id), {
+            id: c.id,
+            label: c.label,
+            count: 0,
+            note: '',
+            status: 'unreported',
+            reported: false,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        });
+        await batch.commit();
+      } catch (e) {
+        showError(e);
+      }
+    };
+
+    // 認証 & 監視
+    try {
+      await signInAnonymously(auth);
+    } catch (e) {
+      showError(e);
+    }
+
+    onAuthStateChanged(auth, (user) => {
+      currentUser = user;
+      if (!user) return;
+
+      try {
+        onSnapshot(
+          collection(db, 'drill_status'),
+          (snapshot) => {
+            const data = {};
+            snapshot.forEach((d) => { data[d.id] = d.data(); });
+            drillData = data;
+
+            renderGrid();
+            loadingEl.classList.add('hidden');
+            gridEl.classList.remove('hidden');
+            resetBtn.classList.remove('hidden');
+          },
+          (err) => showError(err)
+        );
+      } catch (e) {
+        showError(e);
+      }
+    });
+  </script>
+</body>
+</html>
